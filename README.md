@@ -3,6 +3,8 @@
 App da família para controlar dinheiro: prints de comprovantes, saldo das contas, ranking do mês,
 contas fixas, orçamento e metas. Funciona como aplicativo no iPhone (ícone na tela inicial, tela cheia).
 
+**Endereço do app:** https://contatos2a-byte.github.io/Fluxo/
+
 ## Como instalar no iPhone
 1. Abra o endereço do app no **Safari**.
 2. Toque em **Compartilhar** (quadrado com a seta) → **Adicionar à Tela de Início**.
