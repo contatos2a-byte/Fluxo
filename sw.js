@@ -1,6 +1,6 @@
 // Fluxo: guarda a "casca" do app para abrir rápido e funcionar sem internet.
 // Os dados sempre vêm do Supabase quando houver conexão.
-const CACHE = "fluxo-v2";
+const CACHE = "fluxo-v3";
 const SHELL = ["./", "./index.html", "./config.js", "./fluxo-runtime.js", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
