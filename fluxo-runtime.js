@@ -92,7 +92,12 @@
   function docRef(c, id) {
     return {
       id,
-      async set(d) { const { error } = await sb.from("docs").upsert({ colecao: c, id, data: d, updated_at: new Date().toISOString() }); if (error) throw error; refresh(c); },
+      async set(d) {
+        const { error } = await sb.from("docs").upsert({ colecao: c, id, data: d, updated_at: new Date().toISOString() }); if (error) throw error; refresh(c);
+        // registro novo (não edição): avisa o resto da família
+        if ((c === "transacoes" || c === "saldos") && d && d.criadoEm && !d.atualizadoEm && Date.now() - Date.parse(d.criadoEm) < 120e3)
+          sb.functions.invoke("avisos", { body: { tipo: "novo", colecao: c, id } }).catch(() => {});
+      },
       async delete() { const { error } = await sb.from("docs").delete().eq("colecao", c).eq("id", id); if (error) throw error; refresh(c); },
       onSnapshot(cb, err) {
         return colRef(c).onSnapshot(snap => { const d = snap.docs.find(x => x.id === id); cb({ exists: !!d, data: () => d ? d.data() : undefined }); }, err);

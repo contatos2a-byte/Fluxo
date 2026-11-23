@@ -50,6 +50,37 @@ Deno.serve(async (req) => {
       }
     }
 
+    if (tipo === "teste" || tipo === "novo") {
+      const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+      const { data: u } = await admin.auth.getUser(token);
+      const email = u?.user?.email?.toLowerCase();
+      const membro = (fam || []).find((f: { email: string }) => f.email.toLowerCase() === email);
+      if (!email || !membro) return out({ erro: "sem acesso" }, 403);
+      if (tipo === "novo") {
+        const colecao = body.colecao === "saldos" ? "saldos" : "transacoes";
+        const { data: row } = await admin.from("docs").select("data").eq("colecao", colecao).eq("id", String(body.id || "")).maybeSingle();
+        const d = row?.data as Record<string, unknown> | undefined;
+        if (!d || d.atualizadoEm || !d.criadoEm || Date.now() - Date.parse(String(d.criadoEm)) > 5 * 60e3) return out({ ok: true, ignorado: true });
+        const quem = nome(membro.pessoa) || "Alguém da família";
+        const dono = String(d.pessoa || "");
+        const de = dono && dono !== membro.pessoa ? ` · ${dono === "W5" ? "da W5" : "de " + nome(dono)}` : "";
+        const v = brl(Number(d.valor) || 0);
+        let msg;
+        if (colecao === "saldos") msg = { title: pick([`🏦 ${quem} atualizou um saldo`, `🏦 Saldo novo na área! ${quem} mandou`]), body: `${d.banco || "Conta"}: ${v}${de}` };
+        else if (d.tipo === "entrada") msg = { title: pick([`🤑 Entrou dinheiro! ${quem} registrou`, `💰 ${quem} acabou de registrar uma entrada`, `🎉 Dinheiro novo! ${quem} registrou`]), body: `${d.estabelecimento || "Entrada"} · +${v}${de}` };
+        else msg = { title: pick([`🧾 ${quem} acabou de registrar um gasto`, `💸 Saiu dinheiro! ${quem} registrou`, `🛒 ${quem} mandou um print`]), body: `${d.estabelecimento || "Gasto"} · ${v}${de}` };
+        for (const s of (subs || []).filter((x: { email: string }) => x.email.toLowerCase() !== email)) {
+          try { await webpush.sendNotification(s.sub, JSON.stringify({ ...msg, tag: "novo", url: APP }), { TTL: 6 * 3600, urgency: "normal" }); enviados++; }
+          catch (e) {
+            const code = (e as { statusCode?: number }).statusCode;
+            if (code === 404 || code === 410) { await admin.from("push_subs").delete().eq("endpoint", s.endpoint); removidos++; }
+            else console.error("push falhou", code, String(e));
+          }
+        }
+        return out({ ok: true, enviados, removidos });
+      }
+    }
+
     if (tipo === "teste") {
       const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
       const { data: u } = await admin.auth.getUser(token);

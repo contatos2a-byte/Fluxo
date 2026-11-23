@@ -602,9 +602,9 @@ button { transition: transform .15s ease; }
   </form>
 </dialog>
 
-<script src="config.js?v=5"></script>
+<script src="config.js?v=6"></script>
 <script src="vendor/supabase.js"></script>
-<script src="fluxo-runtime.js?v=5"></script>
+<script src="fluxo-runtime.js?v=6"></script>
 <script>
 const CATS = {
   saida: ["Mercado","Alimentação","Transporte","Casa","Contas","Saúde","Lazer","Compras","Educação","Outros"],
@@ -931,7 +931,7 @@ $("form").addEventListener("submit", async e => {
   $("save").disabled = true;
   try {
     let fileId = null;
-    if (pendingImg) { $("save").textContent = "Salvando print no Drive…"; fileId = await uploadToDrive(pendingImg, body.pessoa); }
+    if (pendingImg) { $("save").textContent = "Salvando print…"; fileId = await uploadToDrive(pendingImg, body.pessoa); }
     const docId = fileId ? "drv_" + fileId : null;
     const extra = { ...(fileId ? { origem: "drive", arquivoId: fileId, arquivoNome: pendingImg.name } : { origem: pendingImg ? "app" : "manual" }), ...(pendingImg && pendingImg.hash ? { hash: pendingImg.hash } : {}) };
     if (formType === "saldo") {
