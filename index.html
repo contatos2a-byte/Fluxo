@@ -602,9 +602,9 @@ button { transition: transform .15s ease; }
   </form>
 </dialog>
 
-<script src="config.js"></script>
+<script src="config.js?v=5"></script>
 <script src="vendor/supabase.js"></script>
-<script src="fluxo-runtime.js"></script>
+<script src="fluxo-runtime.js?v=5"></script>
 <script>
 const CATS = {
   saida: ["Mercado","Alimentação","Transporte","Casa","Contas","Saúde","Lazer","Compras","Educação","Outros"],
@@ -1308,7 +1308,7 @@ render();
   nBtn.addEventListener("click", async () => {
     nBtn.disabled = true; nBtn.textContent = "Ativando…";
     try { const r = await window.fluxoPush.ativar(); if (r === "ativo") { document.getElementById("notifT").textContent = "Pronto! 🎉"; document.getElementById("notifS").textContent = "Já mandei um aviso de teste. Os lembretes chegam a partir de hoje."; nBtn.hidden = true; setTimeout(() => { nCard.hidden = true; }, 6000); } else notifUI(); }
-    catch (_) { document.getElementById("notifS").textContent = "Não consegui ativar agora. Tente de novo em instantes."; }
+    catch (e) { document.getElementById("notifS").textContent = "Não consegui ativar agora. Tente de novo. (" + ((e && e.name) || "erro") + ": " + ((e && e.message) || "") + ")"; }
     finally { nBtn.disabled = false; nBtn.textContent = "Ativar"; }
   });
   setTimeout(notifUI, 2200);

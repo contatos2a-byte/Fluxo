@@ -149,6 +149,9 @@
 
   /* ---------- notificações no celular ---------- */
   const b64ToBytes = s => { const p = "=".repeat((4 - s.length % 4) % 4); const b = atob((s + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(b, c => c.charCodeAt(0)); };
+  const VAPID = "BNDPiJ28n3XeKBsM5tc6cgl99gsTpcWUQFt1ncvATHzwOnODKJI7NlVfudf1h5mSWHERR7TEzjXY1R8X1DrO3B0";
+  let swReg = null;
+  if ("serviceWorker" in navigator) navigator.serviceWorker.ready.then(r => { swReg = r; }).catch(() => {});
   window.fluxoPush = {
     // "sem-suporte" | "instalar" (iPhone fora da tela de início) | "bloqueado" | "ativo" | "pode-ativar"
     async estado() {
@@ -161,16 +164,21 @@
       return sub && Notification.permission === "granted" ? "ativo" : "pode-ativar";
     },
     async ativar() {
-      if (!sb || !cfg.vapidPublicKey) throw new Error("config");
-      const perm = await Notification.requestPermission();
-      if (perm !== "granted") return perm === "denied" ? "bloqueado" : "pode-ativar";
-      const reg = await navigator.serviceWorker.ready;
-      let sub = await reg.pushManager.getSubscription();
-      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(cfg.vapidPublicKey) });
+      const key = b64ToBytes(cfg.vapidPublicKey || VAPID);
+      const reg = swReg || await navigator.serviceWorker.ready;
+      let sub;
+      // no iPhone o pedido de permissão precisa sair direto do toque: tentamos assinar primeiro
+      try { sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }); }
+      catch (e) {
+        if (Notification.permission === "denied") return "bloqueado";
+        const perm = await Notification.requestPermission();
+        if (perm !== "granted") return perm === "denied" ? "bloqueado" : "pode-ativar";
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      }
       const email = (await sb.auth.getUser()).data.user?.email;
       const j = sub.toJSON();
       const { error } = await sb.from("push_subs").upsert({ endpoint: j.endpoint, email, sub: j });
-      if (error) throw error;
+      if (error) throw Object.assign(new Error(error.message), { name: "Banco" });
       sb.functions.invoke("avisos", { body: { tipo: "teste" } }).catch(() => {});
       return "ativo";
     }
