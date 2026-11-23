@@ -1,7 +1,7 @@
 // Notificações do Fluxo no celular (Web Push).
 // tipo "teste": manda um aviso de boas-vindas para quem acabou de ativar (precisa estar logado).
 // tipo "novo": entrada, saída ou saldo registrado no app. Quem registrou recebe uma comemoração e o resto da família, o aviso.
-// tipo "lembrete" / "contas": chamados pelo relógio do banco (pg_cron), com a senha interna "cron".
+// tipo "lembrete" / "contas" / "resumo": chamados pelo relógio do banco (pg_cron), com a senha interna "cron".
 import { createClient } from "npm:@supabase/supabase-js@2";
 import webpush from "npm:web-push@3.6.7";
 
@@ -137,6 +137,52 @@ function frase(colecao: string, d: Record<string, unknown>, eu: boolean) {
   return pick(pool);
 }
 
+// Resumo das 8h: saldo das contas da família, o que entrou e saiu ontem, como está o mês e o destaque de ontem.
+// A W5 fica de fora dos totais da família, como no app.
+type Reg = { tipo?: string; valor?: number; data?: string; hora?: string; pessoa?: string; banco?: string };
+const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const brl0 = (v: number) => "R$ " + Math.round(v).toLocaleString("pt-BR");
+const diaMais = (iso: string, n: number) => new Date(Date.parse(iso + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10);
+const RESUMO_T = [
+  "☀️ Bom dia, {n}! Seu resumo do Fluxo",
+  "☕ Café com Fluxo, {n}!",
+  "🌅 Bom dia, {n}! Olha como tá a família",
+  "📊 Resumo fresquinho, {n}!",
+  "🐓 Cocoricó, {n}! Hora do resumo",
+  "🌞 Acorda, {n}! O Fluxo já fez as contas",
+  "🧮 Bom dia, {n}! As contas de hoje",
+];
+function montarResumo(tx: Reg[], sd: Reg[], hoje: string, pessoa: string) {
+  const fam = (r: Reg) => r && r.pessoa !== "W5";
+  const T = tx.filter(fam), Sd = sd.filter(fam), ontem = diaMais(hoje, -1);
+  const soma = (a: Reg[], tipo: string) => a.filter(t => t.tipo === tipo).reduce((x, t) => x + (Number(t.valor) || 0), 0);
+  const partes: string[] = [];
+  // saldo: o mais recente de cada conta de cada pessoa
+  const ult = new Map<string, Reg>();
+  for (const r of Sd) { const k = r.pessoa + "|" + r.banco, o = ult.get(k); if (!o || (r.data || "") + (r.hora || "") > (o.data || "") + (o.hora || "")) ult.set(k, r); }
+  if (ult.size) partes.push(`💰 Nas contas da família: ${brl0([...ult.values()].reduce((x, r) => x + (Number(r.valor) || 0), 0))}.`);
+  const tOntem = T.filter(t => t.data === ontem), eO = soma(tOntem, "entrada"), sO = soma(tOntem, "saida");
+  if (eO && sO) partes.push(`Ontem entrou ${brl0(eO)} e saiu ${brl0(sO)}.`);
+  else if (eO) partes.push(`Ontem entrou ${brl0(eO)} e não saiu nada 🙌`);
+  else if (sO) partes.push(`Ontem saiu ${brl0(sO)}.`);
+  else partes.push(pick(["Ontem ninguém registrou nada 👀", "Ontem o Fluxo ficou quietinho 🤫"]));
+  const fechou = hoje.endsWith("-01"), mk = fechou ? ontem.slice(0, 7) : hoje.slice(0, 7);
+  const tMes = T.filter(t => (t.data || "").startsWith(mk)), res = soma(tMes, "entrada") - soma(tMes, "saida");
+  if (tMes.length) {
+    const mes = MESES[Number(mk.slice(5, 7)) - 1];
+    partes.push(fechou ? `${mes[0].toUpperCase() + mes.slice(1)} fechou ${res >= 0 ? "com sobra de " + brl0(res) + " 🎉" : "no vermelho em " + brl0(-res) + " 🔴"}`
+      : `No mês: ${res >= 0 ? "sobrando " + brl0(res) + " ✅" : brl0(-res) + " no vermelho 🔴"}`);
+  }
+  // destaque: quem mais registrou ontem
+  const cont = new Map<string, number>();
+  for (const r of [...T, ...Sd].filter(r => r.data === ontem && r.pessoa)) cont.set(r.pessoa!, (cont.get(r.pessoa!) || 0) + 1);
+  const rank = [...cont.entries()].sort((a, b) => b[1] - a[1]);
+  if (rank.length && (rank.length === 1 || rank[0][1] > rank[1][1])) partes.push(rank[0][0] === pessoa ? "🏆 Destaque de ontem: você! 👏" : `🏆 Destaque de ontem: ${nome(rank[0][0])}!`);
+  partes.push(!tMes.length ? pick(["Bom dia e bons negócios! 😄", "Não esquece de mandar os prints hoje 📲"])
+    : res >= 0 ? pick(["Bora manter! 💪", "Tá voando! 🚀", "Assim que se faz! 😎"]) : pick(["Bora segurar os gastos hoje 😬", "Hoje é dia de economizar 🐷"]));
+  return { title: pick(RESUMO_T).replace("{n}", nome(pessoa)), body: partes.join(" ") };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
@@ -220,6 +266,19 @@ Deno.serve(async (req) => {
         if ((count || 0) > 0) continue;
         const m = pick(LEMBRETES), n = nome(f.pessoa);
         await enviar(f.email, { title: m.t.replace("{n}", n), body: m.b.replace("{n}", n), tag: "lembrete" });
+      }
+      return out({ ok: true, tipo, enviados, removidos });
+    }
+
+    if (tipo === "resumo") {
+      const [{ data: tx }, { data: sd }] = await Promise.all([
+        admin.from("docs").select("data").eq("colecao", "transacoes"),
+        admin.from("docs").select("data").eq("colecao", "saldos"),
+      ]);
+      const regs = (rows: { data: Reg }[] | null) => (rows || []).map(r => r.data).filter(Boolean);
+      const so = body.email ? String(body.email).toLowerCase() : null; // para testar com uma pessoa só
+      for (const f of (fam || []).filter((x: { email: string; pessoa: string | null }) => x.pessoa && (!so || x.email.toLowerCase() === so))) {
+        await enviar(f.email, { ...montarResumo(regs(tx), regs(sd), hoje, f.pessoa), tag: "resumo" });
       }
       return out({ ok: true, tipo, enviados, removidos });
     }
