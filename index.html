@@ -298,6 +298,8 @@ input, textarea, select, .f, td, .acct, .place { -webkit-user-select: text; user
 .notif-tx small { color: var(--muted); font-size: 12px; }
 .notif .btn.sm { padding: 9px 14px; font-size: 13px; flex: none; }
 @keyframes bell { 0%, 70%, 100% { transform: rotate(0); } 75% { transform: rotate(14deg); } 80% { transform: rotate(-12deg); } 85% { transform: rotate(8deg); } 90% { transform: rotate(-5deg); } }
+.notif.bye { animation: byeCard .45s cubic-bezier(.4,0,.2,1) forwards; }
+@keyframes byeCard { to { opacity: 0; transform: translateY(-10px) scale(.96); } }
 /* Barra de abas */
 .tabbar { position: fixed; z-index: 20; left: 50%; bottom: calc(10px + env(safe-area-inset-bottom)); transform: translateX(-50%);
   width: min(520px, calc(100% - 20px)); height: 70px; display: grid; grid-template-columns: 1fr 1fr 92px 1fr 1fr; align-items: center;
@@ -1298,6 +1300,7 @@ render();
   async function notifUI() {
     if (!window.fluxoPush) return;
     let st; try { st = await window.fluxoPush.estado(); } catch (_) { return; }
+    try { if (st === "ativo") localStorage.setItem("fluxoPushOn", "1"); else if (st !== "pode-ativar") localStorage.removeItem("fluxoPushOn"); } catch (_) {}
     const T = document.getElementById("notifT"), S = document.getElementById("notifS");
     nBtn.hidden = false;
     if (st === "ativo" || st === "sem-suporte") { nCard.hidden = true; return; }
@@ -1307,11 +1310,12 @@ render();
   }
   nBtn.addEventListener("click", async () => {
     nBtn.disabled = true; nBtn.textContent = "Ativando…";
-    try { const r = await window.fluxoPush.ativar(); if (r === "ativo") { document.getElementById("notifT").textContent = "Pronto! 🎉"; document.getElementById("notifS").textContent = "Já mandei um aviso de teste. Os lembretes chegam a partir de hoje."; nBtn.hidden = true; setTimeout(() => { nCard.hidden = true; }, 6000); } else notifUI(); }
+    try { const r = await window.fluxoPush.ativar(); if (r === "ativo") { document.getElementById("notifT").textContent = "Pronto! 🎉"; document.getElementById("notifS").textContent = "Já mandei um aviso de teste. Os lembretes chegam a partir de hoje."; nBtn.hidden = true; try { localStorage.setItem("fluxoPushOn", "1"); } catch (_) {} setTimeout(() => { nCard.classList.add("bye"); setTimeout(() => { nCard.hidden = true; nCard.classList.remove("bye"); }, 450); }, 2500); } else notifUI(); }
     catch (e) { document.getElementById("notifS").textContent = "Não consegui ativar agora. Tente de novo. (" + ((e && e.name) || "erro") + ": " + ((e && e.message) || "") + ")"; }
     finally { nBtn.disabled = false; nBtn.textContent = "Ativar"; }
   });
-  setTimeout(notifUI, 2200);
+  try { if (localStorage.getItem("fluxoPushOn") === "1" && window.Notification && Notification.permission === "granted") nCard.hidden = true; } catch (_) {}
+  setTimeout(() => { try { if (localStorage.getItem("fluxoPushOn") === "1" && Notification.permission === "granted") return; } catch (_) {} notifUI(); }, 2200);
   /* Abertura */
   const splash = document.getElementById("splash");
   let first = true;
