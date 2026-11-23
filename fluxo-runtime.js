@@ -146,6 +146,35 @@
       throw new Error("indisponível");
     }
   };
+
+  /* ---------- notificações no celular ---------- */
+  const b64ToBytes = s => { const p = "=".repeat((4 - s.length % 4) % 4); const b = atob((s + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(b, c => c.charCodeAt(0)); };
+  window.fluxoPush = {
+    // "sem-suporte" | "instalar" (iPhone fora da tela de início) | "bloqueado" | "ativo" | "pode-ativar"
+    async estado() {
+      const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+      const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+      if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return ios && !standalone ? "instalar" : "sem-suporte";
+      if (Notification.permission === "denied") return "bloqueado";
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      return sub && Notification.permission === "granted" ? "ativo" : "pode-ativar";
+    },
+    async ativar() {
+      if (!sb || !cfg.vapidPublicKey) throw new Error("config");
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") return perm === "denied" ? "bloqueado" : "pode-ativar";
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(cfg.vapidPublicKey) });
+      const email = (await sb.auth.getUser()).data.user?.email;
+      const j = sub.toJSON();
+      const { error } = await sb.from("push_subs").upsert({ endpoint: j.endpoint, email, sub: j });
+      if (error) throw error;
+      sb.functions.invoke("avisos", { body: { tipo: "teste" } }).catch(() => {});
+      return "ativo";
+    }
+  };
   window.fluxoSair = () => sb && sb.auth.signOut().then(() => location.reload());
 
   if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));

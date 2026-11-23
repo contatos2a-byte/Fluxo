@@ -291,6 +291,13 @@ input, textarea, select, .f, td, .acct, .place { -webkit-user-select: text; user
   .seg.who button { flex: 1 1 auto; padding: 6px 6px; font-size: 12px; gap: 4px; }
   .seg.who .av.sm { width: 18px; height: 18px; }
 }
+.notif { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-color: rgba(198,244,50,.25); }
+.notif-ic { font-size: 26px; width: 44px; height: 44px; border-radius: 14px; background: var(--accent-soft); display: grid; place-items: center; flex: none; animation: bell 2.8s ease-in-out infinite; transform-origin: 50% 10%; }
+.notif-tx { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.notif-tx b { font-size: 14px; }
+.notif-tx small { color: var(--muted); font-size: 12px; }
+.notif .btn.sm { padding: 9px 14px; font-size: 13px; flex: none; }
+@keyframes bell { 0%, 70%, 100% { transform: rotate(0); } 75% { transform: rotate(14deg); } 80% { transform: rotate(-12deg); } 85% { transform: rotate(8deg); } 90% { transform: rotate(-5deg); } }
 /* Barra de abas */
 .tabbar { position: fixed; z-index: 20; left: 50%; bottom: calc(10px + env(safe-area-inset-bottom)); transform: translateX(-50%);
   width: min(520px, calc(100% - 20px)); height: 70px; display: grid; grid-template-columns: 1fr 1fr 92px 1fr 1fr; align-items: center;
@@ -438,6 +445,12 @@ button { transition: transform .15s ease; }
         <span class="cta-tx"><b>Enviar print</b><small>Gastou ou recebeu? Mande o comprovante.</small></span>
         <span class="cta-go">›</span>
       </button>
+
+      <div class="card notif" id="notifCard" hidden>
+        <div class="notif-ic">🔔</div>
+        <div class="notif-tx"><b id="notifT">Quer lembretes divertidos?</b><small id="notifS">O Fluxo te avisa quando faltar print do dia e quando uma conta estiver vencendo.</small></div>
+        <button type="button" class="btn sm" id="notifBtn">Ativar</button>
+      </div>
 
       <div class="kpis" aria-label="Resumo do mês">
         <div class="card kpi hero"><div class="label">Saldo do mês</div><div class="value" id="kSaldo">—</div><div class="sub" id="kSaldoSub">&nbsp;</div></div>
@@ -1279,6 +1292,26 @@ render();
     render = function () { cuToken++; return base.apply(this, arguments); };
   }
 
+
+  /* Botão de ativar notificações */
+  const nCard = document.getElementById("notifCard"), nBtn = document.getElementById("notifBtn");
+  async function notifUI() {
+    if (!window.fluxoPush) return;
+    let st; try { st = await window.fluxoPush.estado(); } catch (_) { return; }
+    const T = document.getElementById("notifT"), S = document.getElementById("notifS");
+    nBtn.hidden = false;
+    if (st === "ativo" || st === "sem-suporte") { nCard.hidden = true; return; }
+    if (st === "instalar") { T.textContent = "Quer lembretes no celular?"; S.textContent = "Abra o Fluxo pelo ícone da tela de início para ativar as notificações."; nBtn.hidden = true; }
+    else if (st === "bloqueado") { T.textContent = "Notificações desligadas"; S.textContent = "Para ligar: Ajustes do iPhone › Notificações › Fluxo › Permitir."; nBtn.hidden = true; }
+    nCard.hidden = false;
+  }
+  nBtn.addEventListener("click", async () => {
+    nBtn.disabled = true; nBtn.textContent = "Ativando…";
+    try { const r = await window.fluxoPush.ativar(); if (r === "ativo") { document.getElementById("notifT").textContent = "Pronto! 🎉"; document.getElementById("notifS").textContent = "Já mandei um aviso de teste. Os lembretes chegam a partir de hoje."; nBtn.hidden = true; setTimeout(() => { nCard.hidden = true; }, 6000); } else notifUI(); }
+    catch (_) { document.getElementById("notifS").textContent = "Não consegui ativar agora. Tente de novo em instantes."; }
+    finally { nBtn.disabled = false; nBtn.textContent = "Ativar"; }
+  });
+  setTimeout(notifUI, 2200);
   /* Abertura */
   const splash = document.getElementById("splash");
   let first = true;
