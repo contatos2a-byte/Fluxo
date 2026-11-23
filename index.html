@@ -238,6 +238,7 @@ html, body { max-width: 100%; overflow-x: hidden; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 /* ===== App: abas, barra inferior, botão de print e animações ===== */
 *, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { height: 100%; overscroll-behavior: none; }
 body { overflow: hidden; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
 input, textarea, select, .f, td, .acct, .place { -webkit-user-select: text; user-select: text; }
@@ -1314,8 +1315,7 @@ render();
     catch (e) { document.getElementById("notifS").textContent = "Não consegui ativar agora. Tente de novo. (" + ((e && e.name) || "erro") + ": " + ((e && e.message) || "") + ")"; }
     finally { nBtn.disabled = false; nBtn.textContent = "Ativar"; }
   });
-  try { if (localStorage.getItem("fluxoPushOn") === "1" && window.Notification && Notification.permission === "granted") nCard.hidden = true; } catch (_) {}
-  setTimeout(() => { try { if (localStorage.getItem("fluxoPushOn") === "1" && Notification.permission === "granted") return; } catch (_) {} notifUI(); }, 2200);
+  setTimeout(() => { try { if (localStorage.getItem("fluxoPushOn") === "1") return; } catch (_) {} notifUI(); }, 2200);
   /* Abertura */
   const splash = document.getElementById("splash");
   let first = true;
