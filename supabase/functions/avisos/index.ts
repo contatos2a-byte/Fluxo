@@ -119,7 +119,10 @@ function frase(colecao: string, d: Record<string, unknown>) {
 
 // Resumo das 8h: saldo das contas da família, o que entrou e saiu ontem, como está o mês e o destaque de ontem.
 // A W5 fica de fora dos totais da família, como no app.
-type Reg = { tipo?: string; valor?: number; data?: string; hora?: string; pessoa?: string; banco?: string };
+type Reg = { tipo?: string; valor?: number; data?: string; hora?: string; pessoa?: string; banco?: string; conta?: string };
+// mesma conta do app: o saldo vale o último print + o que entrou e saiu naquela conta depois dele
+const MAIN_DEFAULT: Record<string, string> = { "Sergio Macceddo": "Mercado Pago", "Ana Paula": "Nubank", "Ana Laura": "Inter", "W5": "W5 (Nu Empresas)" };
+const normB = (x: unknown) => String(x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const brl0 = (v: number) => "R$ " + Math.round(v).toLocaleString("pt-BR");
 const diaMais = (iso: string, n: number) => new Date(Date.parse(iso + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10);
@@ -132,7 +135,7 @@ const RESUMO_T = [
   "🌞 Acorda, {n}! O Fluxo já fez as contas",
   "🧮 Bom dia, {n}! As contas de hoje",
 ];
-function montarResumo(tx: Reg[], sd: Reg[], hoje: string, pessoa: string) {
+function montarResumo(tx: Reg[], sd: Reg[], hoje: string, pessoa: string, principais: Record<string, string> = {}) {
   const fam = (r: Reg) => r && r.pessoa !== "W5";
   const T = tx.filter(fam), Sd = sd.filter(fam), ontem = diaMais(hoje, -1);
   const soma = (a: Reg[], tipo: string) => a.filter(t => t.tipo === tipo).reduce((x, t) => x + (Number(t.valor) || 0), 0);
@@ -140,7 +143,12 @@ function montarResumo(tx: Reg[], sd: Reg[], hoje: string, pessoa: string) {
   // saldo: o mais recente de cada conta de cada pessoa
   const ult = new Map<string, Reg>();
   for (const r of Sd) { const k = r.pessoa + "|" + r.banco, o = ult.get(k); if (!o || (r.data || "") + (r.hora || "") > (o.data || "") + (o.hora || "")) ult.set(k, r); }
-  if (ult.size) partes.push(`💰 Nas contas da família: ${brl0([...ult.values()].reduce((x, r) => x + (Number(r.valor) || 0), 0))}.`);
+  const conta = (t: Reg) => (t.conta && String(t.conta).trim()) || principais[t.pessoa || ""] || MAIN_DEFAULT[t.pessoa || ""] || "";
+  const quando = (t: Reg) => (t.data || "") + (t.hora || "00:00"), fim = hoje + "23:59";
+  const saldo = [...ult.values()].reduce((x, b) => x + (Number(b.valor) || 0) + T
+    .filter(t => t.pessoa === b.pessoa && normB(conta(t)) === normB(b.banco) && quando(t) > (b.data || "") + (b.hora || "") && quando(t) <= fim)
+    .reduce((y, t) => y + (t.tipo === "entrada" ? 1 : -1) * (Number(t.valor) || 0), 0), 0);
+  if (ult.size) partes.push(`💰 Nas contas da família: ${brl0(saldo)}.`);
   const tOntem = T.filter(t => t.data === ontem), eO = soma(tOntem, "entrada"), sO = soma(tOntem, "saida");
   if (eO && sO) partes.push(`Ontem entrou ${brl0(eO)} e saiu ${brl0(sO)}.`);
   else if (eO) partes.push(`Ontem entrou ${brl0(eO)} e não saiu nada 🙌`);
@@ -177,7 +185,9 @@ Deno.serve(async (req) => {
     const { data: fam } = await admin.from("familia").select("email,pessoa");
     const { data: subs } = await admin.from("push_subs").select("endpoint,email,sub");
     let enviados = 0, removidos = 0;
+    const simular = body.simular === true, previa: unknown[] = []; // simular: monta os avisos sem mandar (para testes)
     async function enviar(email: string | null, msg: { title: string; body: string; tag?: string }) {
+      if (simular) { previa.push({ para: email || "todos", ...msg }); return; }
       for (const s of (subs || []).filter((x: { email: string }) => !email || x.email.toLowerCase() === email.toLowerCase())) {
         try {
           await webpush.sendNotification(s.sub, JSON.stringify({ ...msg, url: APP }), { TTL: 6 * 3600, urgency: "normal" });
@@ -246,20 +256,22 @@ Deno.serve(async (req) => {
         const m = pick(LEMBRETES), n = nome(f.pessoa);
         await enviar(f.email, { title: m.t.replace("{n}", n), body: m.b.replace("{n}", n), tag: "lembrete" });
       }
-      return out({ ok: true, tipo, enviados, removidos });
+      return out({ ok: true, tipo, enviados, removidos, ...(simular ? { previa } : {}) });
     }
 
     if (tipo === "resumo") {
-      const [{ data: tx }, { data: sd }] = await Promise.all([
+      const [{ data: tx }, { data: sd }, { data: cfg }] = await Promise.all([
         admin.from("docs").select("data").eq("colecao", "transacoes"),
         admin.from("docs").select("data").eq("colecao", "saldos"),
+        admin.from("docs").select("data").eq("colecao", "config").eq("id", "sistema").maybeSingle(),
       ]);
+      const principais = ((cfg?.data as { contasPrincipais?: Record<string, string> } | undefined)?.contasPrincipais) || {};
       const regs = (rows: { data: Reg }[] | null) => (rows || []).map(r => r.data).filter(Boolean);
       const so = body.email ? String(body.email).toLowerCase() : null; // para testar com uma pessoa só
       for (const f of (fam || []).filter((x: { email: string; pessoa: string | null }) => x.pessoa && (!so || x.email.toLowerCase() === so))) {
-        await enviar(f.email, { ...montarResumo(regs(tx), regs(sd), hoje, f.pessoa), tag: "resumo" });
+        await enviar(f.email, { ...montarResumo(regs(tx), regs(sd), hoje, f.pessoa, principais), tag: "resumo" });
       }
-      return out({ ok: true, tipo, enviados, removidos });
+      return out({ ok: true, tipo, enviados, removidos, ...(simular ? { previa } : {}) });
     }
 
     if (tipo === "contas") {
@@ -275,7 +287,7 @@ Deno.serve(async (req) => {
       else if (hojeV.length > 1) await enviar(null, { title: `📅 ${hojeV.length} contas vencem hoje!`, body: hojeV.map(b => `${b.nome} ${brl(b.valor)}`).join(" · ") + ". Bora pagar? ✅", tag: "contas" });
       if (amanha.length) await enviar(null, { title: amanha.length === 1 ? `⏰ Amanhã vence ${amanha[0].nome}` : `⏰ ${amanha.length} contas vencem amanhã`, body: amanha.map(b => `${b.nome} ${brl(b.valor)}`).join(" · ") + ". Já deixa separado! 😉", tag: "contas-amanha" });
       if (atras.length && d % 3 === 0) await enviar(null, { title: `🚨 ${atras.length === 1 ? "Tem conta atrasada" : atras.length + " contas atrasadas"}`, body: atras.map(b => `${b.nome} ${brl(b.valor)}`).join(" · ") + ". Se já pagou, marca no Fluxo!", tag: "contas-atrasadas" });
-      return out({ ok: true, tipo, enviados, removidos });
+      return out({ ok: true, tipo, enviados, removidos, ...(simular ? { previa } : {}) });
     }
     return out({ erro: "tipo desconhecido" }, 400);
   } catch (e) {

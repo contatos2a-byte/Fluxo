@@ -1020,7 +1020,7 @@ $("upFile").addEventListener("change", async e => {
   if (same) { $("prevMsg").textContent = `Esse mesmo print já foi enviado (${dupDesc(same)}). Não precisa salvar de novo.`; return; }
   try {
     const j = await readPrint(blob);
-    if (!j) { $("prevMsg").textContent = "Leitura automática indisponível aqui. Preencha os campos e salve: o print vai junto para o Drive."; return; }
+    if (!j) { $("prevMsg").textContent = "Leitura automática ainda não está ligada. Preencha os campos e salve: o print fica guardado no app."; return; }
     if (j.kind === "outro") { $("prevMsg").textContent = "Não reconheci um comprovante nem um saldo neste print. Confira e preencha à mão."; return; }
     const tipo = j.kind === "saldo" ? "saldo" : (j.tipo === "entrada" ? "entrada" : "saida");
     openForm(null, { tipo, pessoa: $("fWho").value, valor: j.valor, data: j.data || undefined, hora: j.hora || undefined, estabelecimento: tipo === "saldo" ? (j.banco || "") : (j.estabelecimento || ""), categoria: j.categoria, conta: j.conta || "" });
@@ -1043,7 +1043,7 @@ function updateSync() {
   const c = state.config;
   if (!state.db) { setSync("var(--muted)", "Entre com o e-mail da família para ver os dados."); return; }
   const last = c && c.ultimaLeitura ? new Date(c.ultimaLeitura).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : null;
-  setSync("var(--income)", (last ? `Última leitura do Drive: ${last}` : "Aguardando a primeira leitura do Drive") + (c && c.pasta ? ` · pasta “${c.pasta}”` : "") + " · leitura às 23h, relatório por e-mail às 8h");
+  setSync("var(--income)", (last ? `Última leitura do Drive: ${last}` : "Aguardando a primeira leitura do Drive") + (c && c.pasta ? ` · pasta “${c.pasta}”` : "") + " · leitura às 23h, resumo no celular às 8h, e-mail toda segunda");
 }
 
 /* ---------- Contas fixas, orçamento e metas ---------- */
