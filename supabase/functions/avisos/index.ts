@@ -1,6 +1,6 @@
 // Notificações do Fluxo no celular (Web Push).
 // tipo "teste": manda um aviso de boas-vindas para quem acabou de ativar (precisa estar logado).
-// tipo "novo": entrada, saída ou saldo registrado no app. Quem registrou recebe uma comemoração e o resto da família, o aviso.
+// tipo "novo": entrada, saída ou saldo registrado no app. O resto da família recebe o aviso (quem registrou, não).
 // tipo "lembrete" / "contas" / "resumo": chamados pelo relógio do banco (pg_cron), com a senha interna "cron".
 import { createClient } from "npm:@supabase/supabase-js@2";
 import webpush from "npm:web-push@3.6.7";
@@ -39,14 +39,6 @@ const ENTRADA_OUTROS: F[] = [
   { t: "🕺 Dancinha da vitória!", b: "{q} lançou uma entrada de {v} ({e}){de}" },
   { t: "📈 Gráfico subindo, família!", b: "{q} registrou +{v} · {e}{de}" },
 ];
-const ENTRADA_EU: F[] = [
-  { t: "💰 Plim! +{v} no caixa, {q}!", b: "{e} anotado no Fluxo. Bora que bora! 🚀" },
-  { t: "🎉 Isso aí, {q}! Dinheiro entrando", b: "+{v} de {e} já tá registrado{de}." },
-  { t: "🤑 Que delícia ver dinheiro entrando!", b: "+{v} ({e}) guardadinho no Fluxo{de}." },
-  { t: "🏆 Ponto pra você, {q}!", b: "Entrada de {v} registrada{de}. O ranking agradece!" },
-  { t: "🥳 Entrada anotada, {q}!", b: "{e} · +{v}{de}. A família já ficou sabendo 😉" },
-  { t: "😎 Mandou bem, {q}!", b: "+{v} de {e} no Fluxo{de}. Continua assim!" },
-];
 const ENTRADA_GRANDE: F[] = [
   { t: "🎊 ENTRADA GORDA! {q} registrou +{v}", b: "{e}{de}. Hoje tem comemoração? 🍾" },
   { t: "🤯 Uau! +{v} de uma vez só!", b: "{q} registrou {e}{de}. Que orgulho! 🏆" },
@@ -61,14 +53,6 @@ const SAIDA_OUTROS: F[] = [
   { t: "🐷 O cofrinho sentiu essa", b: "{q} gastou {v} em {e}{de}" },
   { t: "💳 Plim! Cartão em ação", b: "{q} registrou {e} · {v}{de}" },
   { t: "📲 Novo gasto no Fluxo", b: "{q} mandou: {e} · {v}{de}" },
-];
-const SAIDA_EU: F[] = [
-  { t: "✍️ Anotado, {q}!", b: "{e} · {v}{de}. Gasto registrado no Fluxo." },
-  { t: "🧾 Gasto no papel, {q}!", b: "{v} em {e}{de}. Quem anota, controla! 💪" },
-  { t: "👏 Boa, {q}! Mais um registro", b: "{e} · {v}{de} já tá no Fluxo." },
-  { t: "📌 Registrado!", b: "{v} em {e}{de}. Organização nível máximo, {q} 😎" },
-  { t: "🫶 Obrigado por anotar, {q}!", b: "{e} · {v}{de}. Seu eu do futuro agradece." },
-  { t: "✅ Prontinho, {q}!", b: "Saída de {v} ({e}) anotada{de}." },
 ];
 const SAIDA_GRANDE: F[] = [
   { t: "😱 Eita, gasto grande!", b: "{q} registrou {e}: {v}{de}" },
@@ -121,19 +105,15 @@ const SALDO_OUTROS: F[] = [
   { t: "🔎 Raio-X da conta!", b: "{q} mandou o saldo do {b}: {v}{de}" },
   { t: "📊 Saldo fresquinho no Fluxo", b: "{b} · {v}{de}, atualizado por {q}" },
 ];
-const SALDO_EU: F[] = [
-  { t: "🏦 Saldo atualizado, {q}!", b: "{b}: {v}{de}" },
-  { t: "📊 Conta em dia, {q}!", b: "Saldo do {b} anotado: {v}{de}" },
-];
 const fill = (s: string, v: Record<string, string>) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? "");
-function frase(colecao: string, d: Record<string, unknown>, eu: boolean) {
+function frase(colecao: string, d: Record<string, unknown>) {
   const valor = Number(d.valor) || 0, w5 = d.pessoa === "W5";
   let pool: F[];
-  if (colecao === "saldos") pool = eu ? SALDO_EU : SALDO_OUTROS;
-  else if (d.tipo === "entrada") pool = w5 && !eu ? W5_ENTRADA : valor >= 1000 && !eu && Math.random() < .7 ? ENTRADA_GRANDE : eu ? ENTRADA_EU : ENTRADA_OUTROS;
-  else if (w5 && !eu) pool = W5_SAIDA;
-  else if (valor >= 500 && !eu && Math.random() < .6) pool = SAIDA_GRANDE;
-  else { const cat = SAIDA_CAT[String(d.categoria || "")]; pool = cat && !eu && Math.random() < .5 ? cat : eu ? SAIDA_EU : SAIDA_OUTROS; }
+  if (colecao === "saldos") pool = SALDO_OUTROS;
+  else if (d.tipo === "entrada") pool = w5 ? W5_ENTRADA : valor >= 1000 && Math.random() < .7 ? ENTRADA_GRANDE : ENTRADA_OUTROS;
+  else if (w5) pool = W5_SAIDA;
+  else if (valor >= 500 && Math.random() < .6) pool = SAIDA_GRANDE;
+  else { const cat = SAIDA_CAT[String(d.categoria || "")]; pool = cat && Math.random() < .5 ? cat : SAIDA_OUTROS; }
   return pick(pool);
 }
 
@@ -229,10 +209,9 @@ Deno.serve(async (req) => {
           e: String(d.estabelecimento || (d.tipo === "entrada" ? "Entrada" : "Gasto")),
           b: String(d.banco || d.estabelecimento || "Conta").replace(/^banco\s+/i, ""),
         };
-        const fOutros = frase(colecao, d, false), fEu = frase(colecao, d, true);
-        for (const s of (subs || [])) {
-          const eu = s.email.toLowerCase() === email, f = eu ? fEu : fOutros;
-          const msg = { title: fill(f.t, vars), body: fill(f.b, vars), tag: "novo-" + String(body.id || "").slice(-12) };
+        const f = frase(colecao, d);
+        const msg = { title: fill(f.t, vars), body: fill(f.b, vars), tag: "novo-" + String(body.id || "").slice(-12) };
+        for (const s of (subs || []).filter((x: { email: string }) => x.email.toLowerCase() !== email)) { // quem registrou não recebe
           try { await webpush.sendNotification(s.sub, JSON.stringify({ ...msg, url: APP }), { TTL: 6 * 3600, urgency: "normal" }); enviados++; }
           catch (e) {
             const code = (e as { statusCode?: number }).statusCode;
