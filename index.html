@@ -205,6 +205,18 @@ td.when small { color: var(--muted); display: block; font-size: 12px; }
 dialog { border: 1px solid var(--line); border-radius: 22px; padding: 0; background: rgba(14,20,17,.94); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); color: var(--ink); box-shadow: 0 20px 60px rgba(0,0,0,.3); width: min(460px, calc(100% - 32px)); }
 .prev { display: flex; gap: 12px; align-items: center; background: var(--surface-2); border-radius: 12px; padding: 8px; font-size: 13px; color: var(--muted); }
 .prev img { width: 56px; height: 72px; object-fit: cover; border-radius: 8px; flex: none; }
+#d3List { display: grid; gap: 10px; max-height: min(56vh, 520px); overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
+.lt { display: grid; grid-template-columns: auto 44px 1fr; gap: 8px 10px; align-items: start; background: var(--surface-2); border-radius: 12px; padding: 10px; border: 1px solid transparent; }
+.lt.off { opacity: .5; }
+.lt > input[type=checkbox] { width: 20px; height: 20px; margin-top: 12px; accent-color: var(--accent); }
+.lt img { width: 44px; height: 58px; object-fit: cover; border-radius: 6px; }
+.lt .lf { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.lt .lf > * { min-width: 0; border: 1px solid var(--line); background: rgba(255,255,255,.05); border-radius: 8px; padding: 7px 8px; font-size: 14px; color: var(--ink); width: 100%; box-sizing: border-box; }
+.lt .lf .wide { grid-column: 1 / -1; }
+.lt .note { grid-column: 2 / -1; font-size: 12px; color: var(--muted); }
+.lt .note.warn { color: var(--danger); }
+.lt.msg { grid-template-columns: 44px 1fr; align-items: center; font-size: 13px; color: var(--muted); }
+#d3Msg { font-size: 13px; color: var(--muted); }
 dialog::backdrop { background: rgba(0,0,0,.6); backdrop-filter: blur(4px); }
 dialog form { padding: 24px; display: grid; gap: 14px; }
 dialog h3 { font-family: var(--font-display); margin: 0; font-size: 18px; }
@@ -561,7 +573,7 @@ button { transition: transform .15s ease; }
       <span>Metas</span>
     </button>
   </nav>
-  <input id="upFile" type="file" accept="image/*" hidden>
+  <input id="upFile" type="file" accept="image/*" multiple hidden>
 </div>
 
 <dialog id="dlg">
@@ -605,9 +617,23 @@ button { transition: transform .15s ease; }
   </form>
 </dialog>
 
-<script src="config.js?v=6"></script>
+<dialog id="dlg3">
+  <form id="form3" method="dialog">
+    <h3 id="d3Title">Lendo os prints</h3>
+    <label class="f" for="d3Who">De quem<select id="d3Who"><option>Sergio Macceddo</option><option>Ana Paula</option><option>Ana Laura</option><option>W5</option></select></label>
+    <div id="d3Msg"></div>
+    <div id="d3List"></div>
+    <div class="err" id="d3Err"></div>
+    <div class="actions">
+      <button type="button" class="btn ghost" id="d3Cancel">Cancelar</button>
+      <button type="submit" class="btn" id="d3Save" disabled>Lançar</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="config.js?v=7"></script>
 <script src="vendor/supabase.js"></script>
-<script src="fluxo-runtime.js?v=6"></script>
+<script src="fluxo-runtime.js?v=7"></script>
 <script>
 const CATS = {
   saida: ["Mercado","Alimentação","Transporte","Casa","Contas","Saúde","Lazer","Compras","Educação","Outros"],
@@ -998,18 +1024,29 @@ async function readPrint(blob) {
   const sample = await window.claude.use("sample").catch(() => null);
   if (!sample) return null;
   const today = new Date(); const iso = today.getFullYear() + "-" + pad(today.getMonth() + 1) + "-" + pad(today.getDate());
-  const prompt = `A imagem é um print de celular de um app de banco ou loja no Brasil: um comprovante (Pix, compra, pagamento, corrida, boleto), um recibo de valor recebido, ou a tela de SALDO da conta. Hoje é ${iso}.
+  const prompt = `A imagem é um print de celular de um app de banco ou loja no Brasil: um comprovante (Pix, compra, pagamento, corrida, boleto), um recibo de valor recebido, a tela de SALDO da conta, ou uma LISTA de movimentações (extrato, fatura, histórico de gastos do dia). Hoje é ${iso}.
 Responda só com um objeto JSON:
-{"kind":"transacao"|"saldo"|"outro","tipo":"entrada"|"saida","valor":number,"data":"AAAA-MM-DD" ou null,"hora":"HH:MM" ou null,"estabelecimento":string,"banco":string,"conta":string ou null,"categoria":string}
-Regras: valor em reais com ponto decimal (ex. 146.93). "saida" = compra, pagamento, Pix enviado, corrida, fatura; "entrada" = Pix recebido, transferência recebida, salário, venda. Para "saldo", data e hora da tela (a hora da barra de status serve) e banco pelo visual/nome do app. Se faltar o ano, use ${today.getFullYear()} (ou o ano anterior se a data ficaria no futuro). "conta" = banco ou cartão de onde o dinheiro saiu (ou para onde entrou) se aparecer no print (ex. "Nubank", "Mercado Pago", "Inter"), senão null. estabelecimento curto e legível (ex. "Uber", "Pix para Fulano"). categoria para saída: ${CATS.saida.join(", ")}; para entrada: ${CATS.entrada.join(", ")}.`;
-  return await sample.json(prompt, { images: [blob], modelTier: "default", cache: false });
+{"itens":[{"kind":"transacao"|"saldo","tipo":"entrada"|"saida","valor":number,"data":"AAAA-MM-DD" ou null,"hora":"HH:MM" ou null,"estabelecimento":string,"banco":string,"conta":string ou null,"categoria":string}]}
+Um item para cada lançamento que aparece no print: um comprovante dá 1 item; uma lista ou extrato dá 1 item por linha de movimentação visível (não some, não junte, não invente linhas cortadas pela metade). Não conte como lançamento o saldo do dia, totais ou limites que aparecem dentro de um extrato; só use "saldo" quando a tela for a de saldo da conta. Se não reconhecer nenhum comprovante, lista ou saldo, responda {"itens":[]}.
+Regras: valor em reais com ponto decimal, sempre positivo (ex. 146.93). "saida" = compra, pagamento, Pix enviado, corrida, fatura, valor com sinal de menos; "entrada" = Pix recebido, transferência recebida, salário, venda, estorno, valor com sinal de mais. Em listas agrupadas por dia, use a data do grupo ("Hoje" = ${iso}). Para "saldo", data e hora da tela (a hora da barra de status serve) e banco pelo visual/nome do app. Se faltar o ano, use ${today.getFullYear()} (ou o ano anterior se a data ficaria no futuro). "conta" = banco ou cartão de onde o dinheiro saiu (ou para onde entrou) se aparecer no print (ex. "Nubank", "Mercado Pago", "Inter"), senão null. estabelecimento curto e legível (ex. "Uber", "Pix para Fulano"). categoria para saída: ${CATS.saida.join(", ")}; para entrada: ${CATS.entrada.join(", ")}.`;
+  const j = await sample.json(prompt, { images: [blob], modelTier: "default", cache: false });
+  if (!j) return null;
+  // aceita o formato novo (lista) e o antigo (um objeto só)
+  const raw = Array.isArray(j.itens) ? j.itens : j.kind ? (j.kind === "outro" ? [] : [j]) : [];
+  return raw.filter(x => x && Number(x.valor) > 0 && x.kind !== "outro").map(x => {
+    const tipo = x.kind === "saldo" ? "saldo" : (x.tipo === "entrada" ? "entrada" : "saida");
+    return { tipo, valor: Math.round(Number(x.valor) * 100) / 100, data: /^\d{4}-\d{2}-\d{2}$/.test(x.data || "") ? x.data : null, hora: /^\d{1,2}:\d{2}$/.test(x.hora || "") ? x.hora.padStart(5, "0") : null,
+      estabelecimento: tipo === "saldo" ? String(x.banco || x.estabelecimento || "").replace(/^banco\s+/i, "") : String(x.estabelecimento || ""), categoria: x.categoria || "", conta: x.conta || "" };
+  });
 }
 $("upBtn").addEventListener("click", () => {
   if (!state.db || !state.canWrite) { flash("Entre no app para enviar prints."); return; }
   $("upFile").value = ""; $("upFile").click();
 });
 $("upFile").addEventListener("change", async e => {
-  const file = e.target.files && e.target.files[0]; if (!file) return;
+  const files = [...(e.target.files || [])]; if (!files.length) return;
+  if (files.length > 1) { readMany(files); return; }
+  const file = files[0];
   const [blob, hash] = await Promise.all([shrink(file), sha256(file)]);
   pendingImg = { blob, name: file.name, hash };
   $("prevImg").src = URL.createObjectURL(blob); $("prevWrap").hidden = false; $("prevMsg").textContent = "Lendo o print…";
@@ -1019,15 +1056,154 @@ $("upFile").addEventListener("change", async e => {
   const same = hash && [...state.items, ...state.saldos].find(t => t.hash === hash);
   if (same) { $("prevMsg").textContent = `Esse mesmo print já foi enviado (${dupDesc(same)}). Não precisa salvar de novo.`; return; }
   try {
-    const j = await readPrint(blob);
-    if (!j) { $("prevMsg").textContent = "Leitura automática ainda não está ligada. Preencha os campos e salve: o print fica guardado no app."; return; }
-    if (j.kind === "outro") { $("prevMsg").textContent = "Não reconheci um comprovante nem um saldo neste print. Confira e preencha à mão."; return; }
-    const tipo = j.kind === "saldo" ? "saldo" : (j.tipo === "entrada" ? "entrada" : "saida");
-    openForm(null, { tipo, pessoa: $("fWho").value, valor: j.valor, data: j.data || undefined, hora: j.hora || undefined, estabelecimento: tipo === "saldo" ? (j.banco || "") : (j.estabelecimento || ""), categoria: j.categoria, conta: j.conta || "" });
+    const list = await readPrint(blob);
+    if (!list) { $("prevMsg").textContent = "Leitura automática ainda não está ligada. Preencha os campos e salve: o print fica guardado no app."; return; }
+    if (!list.length) { $("prevMsg").textContent = "Não reconheci um comprovante nem um saldo neste print. Confira e preencha à mão."; return; }
+    if (list.length > 1) { // um print com vários lançamentos (ex.: gastos do dia): vai para a lista de conferência
+      const pessoa = $("fWho").value; $("dlg").close(); pendingImg = null;
+      openLote(pessoa); addLoteShot({ blob, name: file.name, hash, url: URL.createObjectURL(blob) }, list); finishLote(); return;
+    }
+    const j = list[0];
+    openForm(null, { tipo: j.tipo, pessoa: $("fWho").value, valor: j.valor, data: j.data || undefined, hora: j.hora || undefined, estabelecimento: j.estabelecimento, categoria: j.categoria, conta: j.conta });
     $("prevMsg").textContent = "Li o print. Confira os campos, ajuste se precisar e salve.";
   } catch (err) {
     $("prevMsg").textContent = err && err.code === "not_granted" ? "Leitura automática não autorizada. Preencha os campos à mão." : err && err.code === "rate_limited" ? "Muitas leituras seguidas. Preencha à mão ou tente daqui a pouco." : "Não consegui ler o print. Preencha os campos à mão.";
   }
+});
+
+/* ---------- Vários prints de uma vez: lê todos, classifica e mostra a lista para lançar ---------- */
+let lote = null; // { shots: [{blob,name,hash,url,itens:[{...,on,el}]}], busy }
+const TIPO_LBL = { saida: "Saída", entrada: "Entrada", saldo: "Saldo em conta" };
+function openLote(pessoa) {
+  lote = { shots: [], busy: true };
+  $("d3Who").value = pessoa || (state.pessoa !== "todos" ? state.pessoa : "Sergio Macceddo");
+  $("d3List").innerHTML = ""; $("d3Err").textContent = ""; $("d3Msg").textContent = ""; $("d3Title").textContent = "Lendo os prints";
+  $("d3Save").disabled = true; $("d3Save").textContent = "Lançar";
+  if (!$("dlg3").open) $("dlg3").showModal();
+}
+function loteMsg(img, text, warn) {
+  const d = document.createElement("div"); d.className = "lt msg";
+  d.innerHTML = `<img src="${img.url}" alt=""><span${warn ? ' style="color:var(--danger)"' : ""}>${esc(text)}</span>`;
+  $("d3List").appendChild(d);
+}
+function itemRow(shot, it) {
+  const d = document.createElement("div"); d.className = "lt";
+  const catOpts = t => t === "saldo" ? "" : CATS[t].map(c => `<option${c === it.categoria ? " selected" : ""}>${esc(c)}</option>`).join("");
+  d.innerHTML = `<input type="checkbox" aria-label="Lançar este item"${it.on ? " checked" : ""}><img src="${shot.url}" alt="">
+    <div class="lf">
+      <select data-k="tipo" aria-label="Tipo">${Object.entries(TIPO_LBL).map(([k, v]) => `<option value="${k}"${k === it.tipo ? " selected" : ""}>${v}</option>`).join("")}</select>
+      <input data-k="valor" inputmode="decimal" aria-label="Valor (R$)" value="${it.valor.toFixed(2).replace(".", ",")}">
+      <input data-k="estabelecimento" class="wide" aria-label="Estabelecimento ou banco" placeholder="${it.tipo === "saldo" ? "Banco" : "Estabelecimento ou pagador"}" value="${esc(it.estabelecimento)}">
+      <input data-k="data" type="date" aria-label="Data" value="${it.data}">
+      <select data-k="categoria" aria-label="Categoria"${it.tipo === "saldo" ? " hidden" : ""}>${catOpts(it.tipo)}</select>
+    </div>
+    <div class="note${it.dup ? " warn" : ""}">${it.dup ? "Parece repetido: " + esc(dupDesc(it.dup)) + ". Marque se for outro." : ""}</div>`;
+  const cb = d.querySelector("input[type=checkbox]");
+  const sync = () => { it.on = cb.checked; d.classList.toggle("off", !it.on); updLote(); };
+  cb.addEventListener("change", sync);
+  d.querySelector('[data-k="tipo"]').addEventListener("change", ev => {
+    it.tipo = ev.target.value; const cs = d.querySelector('[data-k="categoria"]');
+    cs.hidden = it.tipo === "saldo"; if (it.tipo !== "saldo") { cs.innerHTML = catOpts(it.tipo); if (!CATS[it.tipo].includes(it.categoria)) cs.value = "Outros"; }
+    d.querySelector('[data-k="estabelecimento"]').placeholder = it.tipo === "saldo" ? "Banco" : "Estabelecimento ou pagador"; updLote();
+  });
+  d.querySelector('[data-k="valor"]').addEventListener("input", updLote);
+  it.el = d; d.classList.toggle("off", !it.on);
+  return d;
+}
+function addLoteShot(img, list) {
+  const pessoa = $("d3Who").value, now = new Date(), hoje = todayKey(), hora = pad(now.getHours()) + ":" + pad(now.getMinutes());
+  img.itens = list.map(x => {
+    const it = { ...x, data: x.data || hoje, hora: x.hora || (x.data && x.data !== hoje ? "" : hora) };
+    if (it.tipo !== "saldo" && !CATS[it.tipo].includes(it.categoria)) it.categoria = "Outros";
+    it.dup = findDup(it.tipo, it.tipo === "saldo" ? { pessoa, banco: it.estabelecimento, valor: it.valor, data: it.data, hora: it.hora } : { ...it, pessoa });
+    it.on = !it.dup; return it;
+  });
+  lote.shots.push(img);
+  for (const it of img.itens) $("d3List").appendChild(itemRow(img, it));
+  updLote();
+}
+function readItem(it) {
+  const g = k => it.el.querySelector(`[data-k="${k}"]`).value;
+  return { tipo: g("tipo"), valor: parseBRL(g("valor")), estabelecimento: g("estabelecimento").trim(), data: g("data"), categoria: g("categoria") };
+}
+function updLote() {
+  if (!lote) return;
+  const on = lote.shots.flatMap(s => s.itens || []).filter(i => i.on);
+  let sai = 0, ent = 0;
+  for (const i of on) { const v = parseBRL(i.el.querySelector('[data-k="valor"]').value) || 0; const t = i.el.querySelector('[data-k="tipo"]').value; if (t === "saida") sai += v; else if (t === "entrada") ent += v; }
+  $("d3Save").disabled = lote.busy || !on.length;
+  $("d3Save").textContent = on.length ? `Lançar ${on.length}` : "Lançar";
+  if (!lote.busy) $("d3Msg").textContent = on.length ? `Confira e lance tudo de uma vez.${sai ? " Saídas: " + brl.format(sai) + "." : ""}${ent ? " Entradas: " + brl.format(ent) + "." : ""}` : "Nada marcado para lançar.";
+}
+function finishLote() {
+  lote.busy = false;
+  const n = lote.shots.flatMap(s => s.itens || []).length;
+  $("d3Title").textContent = n ? `${n} lançamento${n > 1 ? "s" : ""} encontrado${n > 1 ? "s" : ""}` : "Nada para lançar";
+  updLote();
+}
+async function readMany(files) {
+  openLote();
+  const imgs = new Array(files.length); let done = 0, next = 0, off = false;
+  const step = () => { $("d3Msg").textContent = `Lendo print ${Math.min(done + 1, files.length)} de ${files.length}…`; };
+  step();
+  async function worker() {
+    while (next < files.length && !off) {
+      const k = next++, file = files[k];
+      const [blob, hash] = await Promise.all([shrink(file), sha256(file)]);
+      const img = imgs[k] = { blob, name: file.name, hash, url: URL.createObjectURL(blob), list: null, why: "" };
+      const same = hash && [...state.items, ...state.saldos].find(t => t.hash === hash);
+      if (same) img.why = `Já enviado antes (${dupDesc(same)}).`;
+      else try { img.list = await readPrint(blob); if (!img.list) { img.why = "Leitura automática não está ligada."; off = true; } else if (!img.list.length) img.why = "Não reconheci comprovante, lista nem saldo neste print."; }
+      catch (err) { img.why = err && err.code === "rate_limited" ? "Muitas leituras seguidas. Mande este de novo daqui a pouco." : "Não consegui ler este print. Mande ele sozinho para preencher à mão."; }
+      done++; step();
+    }
+  }
+  await Promise.all([worker(), worker(), worker()]);
+  if (!lote || !$("dlg3").open) return;
+  for (const img of imgs) { if (!img) continue; if (img.list && img.list.length) addLoteShot(img, img.list); else loteMsg(img, img.why, !img.why.startsWith("Já")); }
+  finishLote();
+}
+$("d3Cancel").addEventListener("click", () => $("dlg3").close());
+$("dlg3").addEventListener("close", () => { if (lote) for (const s of lote.shots) URL.revokeObjectURL(s.url); lote = null; });
+$("d3Who").addEventListener("change", () => { if (!lote) return; const pessoa = $("d3Who").value; for (const s of lote.shots) for (const it of s.itens) { const b = readItem(it); it.dup = findDup(b.tipo, b.tipo === "saldo" ? { pessoa, banco: b.estabelecimento, valor: b.valor, data: b.data, hora: it.hora } : { ...b, hora: it.hora, pessoa }); const n = it.el.querySelector(".note"); n.className = "note" + (it.dup ? " warn" : ""); n.textContent = it.dup ? "Parece repetido: " + dupDesc(it.dup) + ". Marque se for outro." : ""; } });
+$("form3").addEventListener("submit", async e => {
+  e.preventDefault(); if (!lote || lote.busy) return;
+  const pessoa = $("d3Who").value, conta = mainAcct(pessoa);
+  const todos = lote.shots.flatMap(s => s.itens.filter(i => i.on).map(i => ({ s, i, b: readItem(i) })));
+  const ruim = todos.find(x => !(x.b.valor > 0) || !x.b.estabelecimento || !x.b.data);
+  if (ruim) { $("d3Err").textContent = "Tem item sem valor, nome ou data. Corrija ou desmarque."; ruim.i.el.scrollIntoView({ block: "nearest" }); return; }
+  $("d3Save").disabled = true; $("d3Err").textContent = ""; lote.busy = true;
+  const emLote = todos.length > 1, feitos = []; let falhas = 0, meses = [];
+  try {
+    for (const s of lote.shots) {
+      const its = todos.filter(x => x.s === s); if (!its.length) continue;
+      $("d3Save").textContent = `Salvando ${feitos.length + 1} de ${todos.length}…`;
+      const fileId = await uploadToDrive(s, pessoa);
+      const extra = { ...(fileId ? { origem: "drive", arquivoId: fileId, arquivoNome: s.name } : { origem: "app" }), ...(s.hash ? { hash: s.hash } : {}), ...(emLote ? { lote: true } : {}) };
+      for (const [k, { i, b }] of its.entries()) {
+        const docId = fileId ? "drv_" + fileId + (k ? "_" + (k + 1) : "") : null;
+        try {
+          if (b.tipo === "saldo") {
+            const ref = docId ? state.db.collection("saldos").doc(docId) : state.db.collection("saldos").doc();
+            await ref.set({ banco: b.estabelecimento.replace(/^banco\s+/i, ""), pessoa, valor: b.valor, data: b.data, hora: i.hora, ...extra, criadoEm: new Date().toISOString() });
+            feitos.push({ colecao: "saldos", id: ref.id });
+          } else {
+            const ref = docId ? state.db.collection("transacoes").doc(docId) : state.db.collection("transacoes").doc();
+            await ref.set({ tipo: b.tipo, valor: b.valor, estabelecimento: b.estabelecimento, data: b.data, hora: i.hora, categoria: b.categoria, pessoa, conta: i.conta || conta, ...extra, criadoEm: new Date().toISOString() });
+            feitos.push({ colecao: "transacoes", id: ref.id }); meses.push(b.data.slice(0, 7));
+          }
+          i.on = false; i.el.remove();
+        } catch { falhas++; }
+      }
+    }
+  } finally {
+    if (emLote && feitos.length) window.claude.use("avisos").then(a => a.lote(feitos)).catch(() => {});
+    if (lote) lote.busy = false;
+  }
+  if (falhas) { $("d3Err").textContent = `${feitos.length} lançado${feitos.length === 1 ? "" : "s"}, ${falhas} não deu certo. Toque em Lançar para tentar de novo.`; updLote(); return; }
+  $("dlg3").close();
+  if (meses.length) state.month = meses.sort().pop();
+  render();
 });
 
 /* ---------- Controles ---------- */

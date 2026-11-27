@@ -19,7 +19,7 @@ Deno.serve(async (req) => {
       headers: { "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
         model: "claude-haiku-5-5",
-        max_tokens: 600,
+        max_tokens: 3000, // um print pode ter vários lançamentos (extrato, gastos do dia)
         messages: [{ role: "user", content: [
           { type: "image", source: { type: "base64", media_type: mediaType || "image/jpeg", data: image } },
           { type: "text", text: prompt }
