@@ -200,12 +200,42 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (tipo === "teste" || tipo === "novo") {
+    if (tipo === "teste" || tipo === "novo" || tipo === "lote") {
       const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
       const { data: u } = await admin.auth.getUser(token);
       const email = u?.user?.email?.toLowerCase();
       const membro = (fam || []).find((f: { email: string }) => f.email.toLowerCase() === email);
       if (!email || !membro) return out({ erro: "sem acesso" }, 403);
+      if (tipo === "lote") { // vários prints de uma vez: um aviso só, com o resumo
+        const itens = (Array.isArray(body.itens) ? body.itens : []).slice(0, 200) as { colecao?: string; id?: string }[];
+        const rows: Record<string, unknown>[] = [];
+        for (const c of ["transacoes", "saldos"]) {
+          const ids = itens.filter(i => (i.colecao === "saldos" ? "saldos" : "transacoes") === c).map(i => String(i.id || ""));
+          if (!ids.length) continue;
+          const { data } = await admin.from("docs").select("data").eq("colecao", c).in("id", ids);
+          for (const r of data || []) rows.push({ ...(r.data as Record<string, unknown>), _c: c });
+        }
+        const novos = rows.filter(d => d.criadoEm && !d.atualizadoEm && Date.now() - Date.parse(String(d.criadoEm)) < 10 * 60e3);
+        if (!novos.length) return out({ ok: true, ignorado: true });
+        const quem = nome(membro.pessoa) || "Alguém da família";
+        const tr = novos.filter(d => d._c === "transacoes");
+        const sai = tr.filter(d => d.tipo !== "entrada"), ent = tr.filter(d => d.tipo === "entrada"), sal = novos.filter(d => d._c === "saldos");
+        const tot = (a: Record<string, unknown>[]) => brl(a.reduce((x, d) => x + (Number(d.valor) || 0), 0));
+        const donos = [...new Set(novos.map(d => String(d.pessoa || "")).filter(p => p && p !== membro.pessoa))];
+        const de = donos.length === 1 ? ` · ${donos[0] === "W5" ? "da W5" : "de " + nome(donos[0])}` : "";
+        const partes = [sai.length && `${sai.length} saída${sai.length > 1 ? "s" : ""} (${tot(sai)})`, ent.length && `${ent.length} entrada${ent.length > 1 ? "s" : ""} (+${tot(ent)})`, sal.length && `${sal.length} saldo${sal.length > 1 ? "s" : ""} de conta`].filter(Boolean);
+        const msg = { title: pick([`📸 ${quem} mandou ${novos.length} lançamentos de uma vez!`, `🧾 Lote de prints! ${quem} registrou ${novos.length}`, `⚡ ${quem} colocou o Fluxo em dia: ${novos.length} registros`]), body: partes.join(" · ") + de, tag: "lote-" + Date.now() };
+        for (const s of (subs || []).filter((x: { email: string }) => x.email.toLowerCase() !== email)) {
+          if (simular) { previa.push({ para: s.email, ...msg }); continue; }
+          try { await webpush.sendNotification(s.sub, JSON.stringify({ ...msg, url: APP }), { TTL: 6 * 3600, urgency: "normal" }); enviados++; }
+          catch (e) {
+            const code = (e as { statusCode?: number }).statusCode;
+            if (code === 404 || code === 410) { await admin.from("push_subs").delete().eq("endpoint", s.endpoint); removidos++; }
+            else console.error("push falhou", code, String(e));
+          }
+        }
+        return out({ ok: true, enviados, removidos, ...(simular ? { previa } : {}) });
+      }
       if (tipo === "novo") {
         const colecao = body.colecao === "saldos" ? "saldos" : "transacoes";
         const { data: row } = await admin.from("docs").select("data").eq("colecao", colecao).eq("id", String(body.id || "")).maybeSingle();

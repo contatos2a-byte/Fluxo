@@ -95,7 +95,7 @@
       async set(d) {
         const { error } = await sb.from("docs").upsert({ colecao: c, id, data: d, updated_at: new Date().toISOString() }); if (error) throw error; refresh(c);
         // registro novo (não edição): avisa o resto da família
-        if ((c === "transacoes" || c === "saldos") && d && d.criadoEm && !d.atualizadoEm && Date.now() - Date.parse(d.criadoEm) < 120e3)
+        if ((c === "transacoes" || c === "saldos") && d && d.criadoEm && !d.atualizadoEm && !d.lote && Date.now() - Date.parse(d.criadoEm) < 120e3)
           sb.functions.invoke("avisos", { body: { tipo: "novo", colecao: c, id } }).catch(() => {});
       },
       async delete() { const { error } = await sb.from("docs").delete().eq("colecao", c).eq("id", id); if (error) throw error; refresh(c); },
@@ -148,6 +148,8 @@
       if (name === "user") return { can: async () => true, email: (await sb.auth.getUser()).data.user?.email };
       if (name === "sample") return sample;
       if (name === "mcp") return mcp;
+      // vários prints de uma vez: um aviso só para a família, com o resumo do lote
+      if (name === "avisos") return { lote: itens => sb.functions.invoke("avisos", { body: { tipo: "lote", itens } }) };
       throw new Error("indisponível");
     }
   };
